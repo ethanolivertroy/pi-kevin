@@ -1,0 +1,29 @@
+{
+  "name": "@ethanolivertroy/kevin-pi",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Pi package for browsing and analyzing CISA Known Exploited Vulnerabilities with KEVin.",
+  "keywords": ["pi-package", "security", "cve", "kev", "cisa", "vulnerability"],
+  "type": "module",
+  "pi": {
+    "extensions": ["./extensions"],
+    "skills": ["./skills"]
+  },
+  "peerDependencies": {
+    "@mariozechner/pi-ai": "*",
+    "@mariozechner/pi-coding-agent": "*",
+    "@mariozechner/pi-tui": "*",
+    "@sinclair/typebox": "*"
+  },
+  "devDependencies": {
+    "@mariozechner/pi-ai": "*",
+    "@mariozechner/pi-coding-agent": "*",
+    "@mariozechner/pi-tui": "*",
+    "@sinclair/typebox": "*",
+    "@types/node": "^24.6.0",
+    "typescript": "^5.9.3"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  }
+}
