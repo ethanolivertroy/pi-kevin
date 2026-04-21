@@ -43,7 +43,7 @@ function epssBar(theme: Theme, score: number, width: number): string {
   const filled = Math.max(0, Math.min(width, Math.round(score * width)));
   const empty = Math.max(0, width - filled);
   const fillColor = score >= 0.7 ? "error" : score >= 0.3 ? "warning" : "success";
-  return `${theme.fg(fillColor, "█".repeat(filled))}${theme.fg("dim", "░".repeat(empty))}`;
+  return `${theme.fg(fillColor, "█".repeat(filled))}${theme.fg("muted", "░".repeat(empty))}`;
 }
 
 function riskColor(theme: Theme, score: number): string {
@@ -88,7 +88,7 @@ function isPatchReference(ref: PatchReference): boolean {
 
 function referenceLine(theme: Theme, ref: PatchReference): string {
   const tags = (ref.tags ?? []).slice(0, 2).join(", ");
-  return `${theme.fg("muted", summarizeUrl(ref.url))}${tags ? ` ${theme.fg("dim", `[${tags}]`)}` : ""}`;
+  return `${theme.fg("text", summarizeUrl(ref.url))}${tags ? ` ${theme.fg("muted", `[${tags}]`)}` : ""}`;
 }
 
 function fitPaneLines(lines: string[], width: number, height: number): string[] {
@@ -98,11 +98,11 @@ function fitPaneLines(lines: string[], width: number, height: number): string[] 
 }
 
 function actionHintLine(theme: Theme): string {
-  return theme.fg("dim", "Enter pin • Ctrl+P patch • Ctrl+E urgency • Ctrl+G controls • Ctrl+L related");
+  return theme.fg("muted", "Enter pin • Ctrl+P patch • Ctrl+E urgency • Ctrl+G controls • Ctrl+L related");
 }
 
 function linkHintLine(theme: Theme): string {
-  return theme.fg("dim", "Ctrl+N NVD • Ctrl+V top patch/ref • Ctrl+Y copy best link • Esc close");
+  return theme.fg("muted", "Ctrl+N NVD • Ctrl+V top patch/ref • Ctrl+Y copy best link • Esc close");
 }
 
 function sortLabel(mode: SortMode): string {
@@ -314,16 +314,14 @@ export class KevBrowserOverlay {
     const lines: string[] = [];
     const title = this.options.title ?? "KEVin Browser";
     const selected = this.getSelected();
-    const leftWidth = Math.max(42, Math.floor(width * 0.5));
-    const rightWidth = Math.max(26, width - leftWidth - 1);
-    const visibleRows = this.detailMode === "detail" ? 9 : 8;
+    const leftWidth = Math.max(44, Math.floor(width * 0.56));
+    const rightWidth = Math.max(24, width - leftWidth - 1);
+    const visibleRows = 8;
     const bodyHeight = visibleRows * 2;
     const start = Math.min(this.scrollOffsetFor(visibleRows), Math.max(0, this.filtered.length - visibleRows));
     const visible = this.filtered.slice(start, start + visibleRows);
-    const resultLines = this.renderResultLines(visible, start, leftWidth, visibleRows);
-    const detailLines = this.renderDetailLines(selected, rightWidth, bodyHeight);
 
-    lines.push(truncateToWidth(`${this.theme.fg("accent", "◆")} ${this.theme.fg("accent", this.theme.bold(title))} ${this.theme.fg("dim", "• CISA Known Exploited Vulnerabilities")}`, width));
+    lines.push(truncateToWidth(`${this.theme.fg("accent", "◆")} ${this.theme.fg("accent", this.theme.bold(title))} ${this.theme.fg("muted", "• CISA Known Exploited Vulnerabilities")}`, width));
 
     if (this.options.stats) {
       lines.push(
@@ -334,30 +332,46 @@ export class KevBrowserOverlay {
       );
     }
 
-    const queryText = this.query ? this.theme.fg("text", this.query) : this.theme.fg("dim", "type to filter by CVE, vendor, product, CWE...");
+    const queryText = this.query ? this.theme.fg("text", this.query) : this.theme.fg("muted", "type to filter by CVE, vendor, product, CWE...");
     lines.push(truncateToWidth(`${this.theme.fg("muted", "⌕ Search:")} ${queryText}`, width));
     lines.push(
       truncateToWidth(
-        `${this.theme.fg("dim", `Sort ${sortLabel(this.sortMode)}`)}${this.ransomwareOnly ? this.theme.fg("warning", " • ransomware") : ""}${this.overdueOnly ? this.theme.fg("error", " • overdue") : ""}${this.theme.fg("dim", ` • ${this.detailMode}`)}`,
+        `${this.theme.fg("muted", "Sort")} ${this.theme.fg("text", sortLabel(this.sortMode))}${this.ransomwareOnly ? this.theme.fg("warning", " • ransomware") : ""}${this.overdueOnly ? this.theme.fg("error", " • overdue") : ""}${this.theme.fg("muted", ` • ${this.detailMode}`)}`,
         width,
       ),
     );
     lines.push(truncateToWidth(this.theme.fg("borderMuted", "─".repeat(Math.max(12, width))), width));
-    lines.push(joinColumns(this.theme.fg("accent", this.theme.bold(" ◆ Results")), this.theme.fg("accent", this.theme.bold(this.detailMode === "detail" ? " ◆ Detail" : " ◆ Preview")), leftWidth, rightWidth));
+
+    if (this.detailMode === "detail") {
+      const detailLines = this.renderFullDetailPage(selected, width, 16);
+      lines.push(truncateToWidth(this.theme.fg("accent", this.theme.bold(" ◆ Detail")), width));
+      lines.push(...detailLines);
+      lines.push(truncateToWidth(this.theme.fg("borderMuted", "─".repeat(Math.max(12, width))), width));
+      lines.push(truncateToWidth(this.theme.fg("muted", `${this.filtered.length} result(s) • ${selected ? `selected ${selected.cveId}` : "no selection"}`), width));
+      lines.push(truncateToWidth(this.theme.fg("muted", "↑↓ move • Tab back to split preview • Ctrl+N NVD • Ctrl+V top ref • Ctrl+Y copy link • Esc close"), width));
+      return lines;
+    }
+
+    const resultLines = this.renderResultLines(visible, start, leftWidth, visibleRows);
+    const previewLines = selected
+      ? this.renderPreviewLines(selected, this.selectedDetails?.found && this.selectedDetails.cveId === selected.cveId ? this.selectedDetails : undefined, rightWidth, bodyHeight)
+      : fitPaneLines([this.theme.fg("muted", " Select a KEV to preview.")], rightWidth, bodyHeight);
+
+    lines.push(joinColumns(this.theme.fg("accent", this.theme.bold(" ◆ Results")), this.theme.fg("accent", this.theme.bold(" ◆ Preview")), leftWidth, rightWidth));
 
     for (let row = 0; row < bodyHeight; row++) {
-      lines.push(joinColumns(resultLines[row] ?? "", detailLines[row] ?? "", leftWidth, rightWidth));
+      lines.push(joinColumns(resultLines[row] ?? "", previewLines[row] ?? "", leftWidth, rightWidth));
     }
 
     lines.push(truncateToWidth(this.theme.fg("borderMuted", "─".repeat(Math.max(12, width))), width));
     lines.push(
       truncateToWidth(
-        `${this.theme.fg("dim", `${this.filtered.length} result(s)`)}${selected ? this.theme.fg("dim", ` • selected ${selected.cveId}`) : ""}${this.filtered.length > visibleRows ? this.theme.fg("dim", ` • showing ${start + 1}-${Math.min(start + visibleRows, this.filtered.length)}`) : ""}`,
+        `${this.theme.fg("muted", `${this.filtered.length} result(s)`)}${selected ? this.theme.fg("muted", ` • selected ${selected.cveId}`) : ""}${this.filtered.length > visibleRows ? this.theme.fg("muted", ` • showing ${start + 1}-${Math.min(start + visibleRows, this.filtered.length)}`) : ""}`,
         width,
       ),
     );
-    lines.push(truncateToWidth(this.theme.fg("dim", "type to search • ↑↓ move • PgUp/PgDn jump • Ctrl+S sort • Ctrl+R ransomware • Ctrl+O overdue"), width));
-    lines.push(truncateToWidth(this.theme.fg("dim", "Tab detail/preview • Enter pin • Ctrl+P patch • Ctrl+E exploit • Ctrl+G controls • Ctrl+L related • Esc close"), width));
+    lines.push(truncateToWidth(this.theme.fg("muted", "type to search • ↑↓ move • PgUp/PgDn jump • Ctrl+S sort • Ctrl+R ransomware • Ctrl+O overdue"), width));
+    lines.push(truncateToWidth(this.theme.fg("muted", "Enter pin • Tab full detail • Ctrl+P patch • Ctrl+E exploit • Ctrl+G controls • Ctrl+L related • Esc close"), width));
     return lines;
   }
 
@@ -457,14 +471,18 @@ export class KevBrowserOverlay {
   }
 
   private renderResultPair(result: KevSearchResult, isSelected: boolean, width: number): [string, string] {
-    const prefix = isSelected ? this.theme.fg("accent", "▌") : this.theme.fg("dim", "│");
-    const cve = isSelected ? this.theme.fg("accent", result.cveId) : this.theme.fg("success", result.cveId);
-    const name = isSelected ? this.theme.fg("text", result.name) : this.theme.fg("muted", result.name);
-    const badgeText = badges(this.theme, result).join(` ${this.theme.fg("dim", "•")} `);
+    const prefix = isSelected ? this.theme.fg("accent", "▌") : this.theme.fg("muted", "│");
+    const cve = isSelected ? this.theme.fg("accent", this.theme.bold(result.cveId)) : this.theme.fg("success", result.cveId);
+    const name = isSelected ? this.theme.fg("text", this.theme.bold(result.name)) : this.theme.fg("text", result.name);
+    const badgeText = badges(this.theme, result).join(` ${this.theme.fg("muted", "•")} `);
 
-    const line1Raw = `${prefix} ${cve} ${name}${badgeText ? ` ${this.theme.fg("dim", "•")} ${badgeText}` : ""}`;
-    const meta = `${result.vendor} | ${result.product} | Added: ${result.dateAdded ?? "—"} | EPSS:`;
-    const line2Raw = `  ${this.theme.fg("dim", meta)} ${riskColor(this.theme, result.epssScore)} ${epssBar(this.theme, result.epssScore, Math.max(8, Math.min(14, width - 36)))}`;
+    const line1Raw = `${prefix} ${cve} ${name}${badgeText ? ` ${this.theme.fg("muted", "•")} ${badgeText}` : ""}`;
+    const metaParts = [
+      `${result.vendor} • ${result.product}`,
+      `EPSS ${Math.round(result.epssScore * 100)}%`,
+      result.isOverdue ? `Due ${result.dueDate ?? "—"}` : undefined,
+    ].filter((part): part is string => Boolean(part));
+    const line2Raw = `  ${this.theme.fg(isSelected ? "text" : "muted", metaParts.join(" • "))}`;
 
     if (isSelected) {
       return [selectedRow(this.theme, line1Raw, width), selectedRow(this.theme, line2Raw, width)];
@@ -478,7 +496,7 @@ export class KevBrowserOverlay {
     for (let row = 0; row < visibleRows; row++) {
       const result = visible[row];
       if (!result) {
-        lines.push(row === 0 && this.filtered.length === 0 ? this.theme.fg("dim", " No matches for current filter") : "");
+        lines.push(row === 0 && this.filtered.length === 0 ? this.theme.fg("muted", " No matches for current filter") : "");
         lines.push("");
         continue;
       }
@@ -491,12 +509,12 @@ export class KevBrowserOverlay {
     return lines;
   }
 
-  private renderDetailLines(selected: KevSearchResult | undefined, width: number, height: number): string[] {
+  private renderFullDetailPage(selected: KevSearchResult | undefined, width: number, height: number): string[] {
     if (!selected) {
       return fitPaneLines(
         [
-          this.theme.fg("dim", " Select a KEV to preview, pin, or hand off."),
-          this.theme.fg("dim", " Use Enter to pin context or Ctrl+P / Ctrl+E / Ctrl+G / Ctrl+L for direct triage."),
+          this.theme.fg("muted", " Select a KEV to view full detail."),
+          this.theme.fg("muted", " Use ↑↓ in the browser, then press Tab to open a dedicated detail view."),
         ],
         width,
         height,
@@ -504,39 +522,35 @@ export class KevBrowserOverlay {
     }
 
     const loadedDetails = this.selectedDetails?.found && this.selectedDetails.cveId === selected.cveId ? this.selectedDetails : undefined;
-    return this.detailMode === "detail"
-      ? this.renderFullDetailLines(selected, loadedDetails, width, height)
-      : this.renderPreviewLines(selected, loadedDetails, width, height);
+    return this.renderFullDetailLines(selected, loadedDetails, width, height);
   }
 
   private renderPreviewLines(selected: KevSearchResult, loadedDetails: CveDetails | undefined, width: number, height: number): string[] {
     const lines: string[] = [];
     const headerBadges = badges(this.theme, loadedDetails ?? selected);
+    const summary = loadedDetails?.description ?? selected.shortDescription;
+    const action = loadedDetails?.requiredAction;
+    const riskFacts = [
+      `EPSS ${Math.round(selected.epssScore * 100)}%`,
+      loadedDetails?.cvssPrimary ? `CVSS ${loadedDetails.cvssPrimary.score.toFixed(1)} ${loadedDetails.cvssPrimary.severity}` : undefined,
+      selected.isOverdue ? `Due ${selected.dueDate ?? "—"}` : undefined,
+    ].filter((part): part is string => Boolean(part));
 
-    lines.push(`${this.theme.fg("accent", selected.cveId)}${headerBadges.length ? ` ${this.theme.fg("dim", "•")} ${headerBadges.join(` ${this.theme.fg("dim", "•")} `)}` : ""}`);
-    lines.push(`${this.theme.fg("text", selected.vendor)} • ${this.theme.fg("muted", selected.product)}`);
+    lines.push(`${this.theme.fg("accent", selected.cveId)}${headerBadges.length ? ` ${this.theme.fg("muted", "•")} ${headerBadges.join(` ${this.theme.fg("muted", "•")} `)}` : ""}`);
     lines.push(this.theme.fg("text", selected.name));
-    lines.push(`${this.theme.fg("dim", `Added ${selected.dateAdded ?? "—"} • Due ${selected.dueDate ?? "—"}`)}`);
-    lines.push(`${this.theme.fg("muted", "EPSS")}: ${riskColor(this.theme, selected.epssScore)} ${epssBar(this.theme, selected.epssScore, Math.max(10, Math.min(20, width - 12)))}`);
+    lines.push(`${this.theme.fg("text", selected.vendor)} • ${this.theme.fg("muted", selected.product)}`);
+    if (riskFacts.length > 0) lines.push(this.theme.fg("muted", riskFacts.join(" • ")));
 
-    if (loadedDetails?.cvssPrimary) {
-      lines.push(`${this.theme.fg("muted", "CVSS")}: ${this.theme.fg("text", `${loadedDetails.cvssPrimary.score.toFixed(1)} ${loadedDetails.cvssPrimary.severity}`)}`);
-    }
-    if (loadedDetails?.cwes?.length) {
-      lines.push(`${this.theme.fg("muted", "CWEs")}: ${this.theme.fg("dim", loadedDetails.cwes.slice(0, 3).join(", "))}`);
-    }
+    lines.push(this.theme.fg("accent", " Why it matters"));
+    lines.push(...wrapTextWithAnsi(this.theme.fg("text", summary), Math.max(14, width)).slice(0, 3));
 
-    lines.push(this.theme.fg("accent", " Summary"));
-    lines.push(...wrapTextWithAnsi(this.theme.fg("muted", loadedDetails?.description ?? selected.shortDescription), Math.max(14, width)).slice(0, 4));
-
-    if (loadedDetails?.requiredAction) {
-      lines.push(this.theme.fg("accent", " Required action"));
-      lines.push(...wrapTextWithAnsi(this.theme.fg("muted", loadedDetails.requiredAction), Math.max(14, width)).slice(0, 2));
+    if (action) {
+      lines.push(this.theme.fg("accent", " Next step"));
+      lines.push(...wrapTextWithAnsi(this.theme.fg("text", action), Math.max(14, width)).slice(0, 2));
     }
 
-    lines.push(this.theme.fg("dim", " Tab for richer detail including notes, refs, and patch links."));
+    lines.push(this.theme.fg("muted", " Enter pins this CVE. Tab opens the full detail page."));
     lines.push(actionHintLine(this.theme));
-    lines.push(linkHintLine(this.theme));
     return fitPaneLines(lines, width, height);
   }
 
@@ -547,13 +561,13 @@ export class KevBrowserOverlay {
     lines.push(`${this.theme.fg("accent", selected.cveId)}${headerBadges.length ? ` ${this.theme.fg("dim", "•")} ${headerBadges.join(` ${this.theme.fg("dim", "•")} `)}` : ""}`);
     lines.push(`${this.theme.fg("text", selected.vendor)} • ${this.theme.fg("muted", selected.product)}`);
     lines.push(this.theme.fg("text", selected.name));
-    lines.push(`${this.theme.fg("dim", `Added ${selected.dateAdded ?? "—"} • Due ${selected.dueDate ?? "—"}`)}`);
-    lines.push(`${this.theme.fg("muted", "EPSS")}: ${riskColor(this.theme, selected.epssScore)} ${epssBar(this.theme, selected.epssScore, Math.max(10, Math.min(20, width - 12)))}`);
+    lines.push(this.theme.fg("muted", `Added ${selected.dateAdded ?? "—"} • Due ${selected.dueDate ?? "—"}`));
+    lines.push(`${this.theme.fg("text", "EPSS")}: ${riskColor(this.theme, selected.epssScore)} ${epssBar(this.theme, selected.epssScore, Math.max(10, Math.min(20, width - 12)))}`);
 
     if (!loadedDetails) {
-      lines.push(this.theme.fg("dim", this.loadingDetails ? " Loading full CVE details…" : " Full CVE details not available yet."));
+      lines.push(this.theme.fg("muted", this.loadingDetails ? " Loading full CVE details…" : " Full CVE details not available yet."));
       lines.push(this.theme.fg("accent", " Summary"));
-      lines.push(...wrapTextWithAnsi(this.theme.fg("muted", selected.shortDescription), Math.max(14, width)).slice(0, 6));
+      lines.push(...wrapTextWithAnsi(this.theme.fg("text", selected.shortDescription), Math.max(14, width)).slice(0, 6));
       lines.push(actionHintLine(this.theme));
       lines.push(linkHintLine(this.theme));
       return fitPaneLines(lines, width, height);
@@ -565,21 +579,21 @@ export class KevBrowserOverlay {
 
     lines.push(
       loadedDetails.cvssPrimary
-        ? `${this.theme.fg("muted", "CVSS")}: ${this.theme.fg("text", `${loadedDetails.cvssPrimary.score.toFixed(1)} ${loadedDetails.cvssPrimary.severity}`)}${loadedDetails.cvssPrimary.source ? ` ${this.theme.fg("dim", ` • ${loadedDetails.cvssPrimary.source}`)}` : ""}`
-        : this.theme.fg("dim", "CVSS: not available"),
+        ? `${this.theme.fg("text", "CVSS")}: ${this.theme.fg("text", `${loadedDetails.cvssPrimary.score.toFixed(1)} ${loadedDetails.cvssPrimary.severity}`)}${loadedDetails.cvssPrimary.source ? ` ${this.theme.fg("muted", ` • ${loadedDetails.cvssPrimary.source}`)}` : ""}`
+        : this.theme.fg("muted", "CVSS: not available"),
     );
     if (loadedDetails.nvdUrl) {
-      lines.push(`${this.theme.fg("muted", "NVD")}: ${this.theme.fg("dim", summarizeUrl(loadedDetails.nvdUrl))}`);
+      lines.push(`${this.theme.fg("text", "NVD")}: ${this.theme.fg("text", summarizeUrl(loadedDetails.nvdUrl))}`);
     }
     const metaSummary: string[] = [];
     if (loadedDetails.cwes?.length) metaSummary.push(`CWEs ${loadedDetails.cwes.slice(0, 3).join(", ")}`);
     if (references.length > 0) metaSummary.push(`${references.length} refs${patchReferences.length ? ` • ${patchReferences.length} patch/advisory` : ""}`);
-    if (metaSummary.length > 0) lines.push(this.theme.fg("dim", metaSummary.join(" • ")));
+    if (metaSummary.length > 0) lines.push(this.theme.fg("muted", metaSummary.join(" • ")));
 
     const appendSection = (title: string, content: string | undefined, maxLines: number) => {
       if (!content) return;
       lines.push(this.theme.fg("accent", ` ${title}`));
-      lines.push(...wrapTextWithAnsi(this.theme.fg("muted", content), Math.max(14, width)).slice(0, maxLines));
+      lines.push(...wrapTextWithAnsi(this.theme.fg("text", content), Math.max(14, width)).slice(0, maxLines));
     };
 
     appendSection("Required action", loadedDetails.requiredAction, 2);

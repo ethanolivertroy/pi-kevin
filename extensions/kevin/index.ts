@@ -252,13 +252,13 @@ export default function kevinExtension(pi: ExtensionAPI) {
           lines.push(truncateToWidth(theme.fg("accent", theme.bold(" KEVin context")), width));
 
           if (!selectedCveDetails || !selectedCveDetails.found) {
-            lines.push(truncateToWidth(theme.fg("dim", " No CVE pinned. Use /kev or /cve <id>."), width));
+            lines.push(truncateToWidth(theme.fg("muted", " No CVE pinned. Use /kev or /cve <id>."), width));
           } else {
             lines.push(truncateToWidth(`${theme.fg("accent", selectedCveDetails.cveId)}  ${theme.fg("text", selectedCveDetails.name ?? "")}`, width));
-            lines.push(truncateToWidth(`${theme.fg("muted", selectedCveDetails.vendor ?? "")} • ${theme.fg("muted", selectedCveDetails.product ?? "")}`, width));
+            lines.push(truncateToWidth(`${theme.fg("text", selectedCveDetails.vendor ?? "")} • ${theme.fg("muted", selectedCveDetails.product ?? "")}`, width));
             lines.push(
               truncateToWidth(
-                `${theme.fg("dim", `EPSS ${formatPercent(selectedCveDetails.epssScore)} | Due ${selectedCveDetails.dueDate ?? "—"}`)}${selectedCveDetails.ransomwareUse ? ` ${theme.fg("warning", "| ransomware")}` : ""}${selectedCveDetails.isOverdue ? ` ${theme.fg("error", "| overdue")}` : ""}`,
+                `${theme.fg("muted", `EPSS ${formatPercent(selectedCveDetails.epssScore)} | Due ${selectedCveDetails.dueDate ?? "—"}`)}${selectedCveDetails.ransomwareUse ? ` ${theme.fg("warning", "| ransomware")}` : ""}${selectedCveDetails.isOverdue ? ` ${theme.fg("error", "| overdue")}` : ""}`,
                 width,
               ),
             );
