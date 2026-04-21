@@ -44,6 +44,36 @@ Useful follow-ups:
 /skill:kev-analyst
 ```
 
+## Browser preview
+
+Representative `/kev` layout:
+
+```text
+╭──────────────────────────────────────────────────────────────────────────────╮
+│◆ KEVin Browser • CISA Known Exploited Vulnerabilities                       │
+│[1461 KEVs] [201 ransomware] [73 overdue]                                    │
+│⌕ Search: palo alto                                                          │
+│Sort best • preview • ransomware                                             │
+│──────────────────────────────────────────────────────────────────────────────│
+│◆ Results                                    ◆ Preview                       │
+│▌ CVE-2024-3400 PAN-OS command injection      CVE-2024-3400 • RANSOMWARE     │
+│  Palo Alto | PAN-OS | EPSS 95% ███████████   PAN-OS • Added 2024-04-12      │
+│▌ CVE-2024-0012 PAN-OS auth bypass             Summary                        │
+│  Palo Alto | PAN-OS | EPSS 81% █████████░░░   Required action                │
+│                                               Enter pin • Ctrl+P patch       │
+│                                               Ctrl+N NVD • Ctrl+V top ref    │
+│──────────────────────────────────────────────────────────────────────────────│
+│type to search • ↑↓ move • PgUp/PgDn jump • Tab detail/preview               │
+│Enter pin • Ctrl+P patch • Ctrl+E exploit • Ctrl+G controls • Ctrl+L related │
+╰──────────────────────────────────────────────────────────────────────────────╯
+```
+
+## Workflow demo
+
+The animation below is from the original `kevs-tui` workflow that KEVin Pi replaces. The Pi-native package keeps the same fast KEV triage flow while moving it into Pi commands, tools, and overlays.
+
+![KEVin workflow demo](docs/kevin-workflow-demo.gif)
+
 ## What you get
 
 ### Interactive KEV browser
@@ -117,6 +147,9 @@ Useful follow-ups:
 - `Ctrl+E` quick exploitability handoff
 - `Ctrl+G` quick controls mapping handoff
 - `Ctrl+L` quick related-CVEs handoff
+- `Ctrl+N` open the selected CVE in NVD
+- `Ctrl+V` open the top patch/advisory reference when available
+- `Ctrl+Y` copy the best available link for the selected CVE
 - `Esc` close
 
 ## UI behavior
@@ -155,8 +188,8 @@ npm run typecheck
 
 KEVin Pi is already useful and actively evolving.
 
-The main polish areas still worth iterating on are:
-- browser sort/filter clarity
-- detail mode parity with the old Go version
-- theme and visual polish
-- quick-action handoff UX
+Recent polish includes:
+- richer detail mode with required action, notes, description, CVSS, CWEs, and top references
+- safer quick-action handoffs for remediation, exploitability, controls, and related KEVs
+- actionable browser links for NVD and top patch/advisory references
+- a more KEVin-style browser layout inside Pi

@@ -1,3 +1,4 @@
+import { spawn } from "node:child_process";
 import { StringEnum } from "@mariozechner/pi-ai";
 import type { ExtensionAPI, ExtensionContext, Theme } from "@mariozechner/pi-coding-agent";
 import { Text, truncateToWidth } from "@mariozechner/pi-tui";
@@ -140,7 +141,90 @@ function compactSearchList(results: KevSearchResult[], theme: Theme, limit = 5):
     .join("\n");
 }
 
+type BrowserWorkflowAction = "patch" | "exploit" | "controls" | "related";
+
+interface BrowserHandoff {
+  notification: string;
+  prompt: string;
+}
+
+function buildBrowserHandoff(action: BrowserWorkflowAction, cveId: string, details: CveDetails | null): BrowserHandoff {
+  const target = details?.found && details.vendor && details.product ? `${cveId} (${details.vendor} / ${details.product})` : cveId;
+
+  switch (action) {
+    case "patch":
+      return {
+        notification: `Pinned ${cveId} — checking remediation path`,
+        prompt:
+          `For ${target}, give a remediation-first triage. ` +
+          `Run check_patch_status first and summarize in bullets: patch/advisory availability, the best remediation path, and what to do next if patching is delayed or unavailable.`,
+      };
+    case "exploit":
+      return {
+        notification: `Pinned ${cveId} — checking exploitability and urgency`,
+        prompt:
+          `For ${target}, assess urgency. ` +
+          `Run check_patch_status first, then check_exploit_availability. Summarize in bullets: exploit signals, patch/advisory status, and immediate next actions.`,
+      };
+    case "controls":
+      return {
+        notification: `Pinned ${cveId} — mapping controls`,
+        prompt:
+          `For ${target}, run map_cve_to_controls and give a concise controls summary. ` +
+          `Default to NIST unless another framework is clearly implied, and mention that FedRAMP or CIS mappings are available on request.`,
+      };
+    case "related":
+      return {
+        notification: `Pinned ${cveId} — finding related KEVs`,
+        prompt:
+          `For ${target}, run find_related_cves and summarize the most relevant related KEVs in bullets. ` +
+          `Focus on shared vendor, product, or CWE patterns and what they imply for triage.`,
+      };
+  }
+}
+
 type KevinUiMode = "auto" | "on" | "off";
+
+function getBestReferenceUrl(details: CveDetails | null): string | undefined {
+  if (!details?.found) return undefined;
+  const references = details.references ?? [];
+  const patchRef = references.find((ref) => {
+    const tags = (ref.tags ?? []).join(" ").toLowerCase();
+    const url = ref.url.toLowerCase();
+    return tags.includes("patch") || tags.includes("vendor advisory") || url.includes("advisory") || url.includes("security") || url.includes("release-note") || url.includes("support") || url.includes("kb/");
+  });
+  return patchRef?.url ?? references[0]?.url ?? details.nvdUrl;
+}
+
+async function openUrl(url: string): Promise<void> {
+  const platform = process.platform;
+  const command = platform === "darwin" ? "open" : platform === "win32" ? "cmd" : "xdg-open";
+  const args = platform === "darwin" ? [url] : platform === "win32" ? ["/c", "start", "", url] : [url];
+
+  await new Promise<void>((resolve, reject) => {
+    const child = spawn(command, args, { stdio: "ignore", detached: true });
+    child.on("error", reject);
+    child.unref();
+    resolve();
+  });
+}
+
+async function copyToClipboard(text: string): Promise<void> {
+  const platform = process.platform;
+  const command = platform === "darwin" ? "pbcopy" : platform === "win32" ? "clip" : "xclip";
+  const args = platform === "linux" ? ["-selection", "clipboard"] : [];
+
+  await new Promise<void>((resolve, reject) => {
+    const child = spawn(command, args, { stdio: ["pipe", "ignore", "ignore"] });
+    child.on("error", reject);
+    child.on("close", (code) => {
+      if (code === 0) resolve();
+      else reject(new Error(`${command} exited with code ${code ?? 1}`));
+    });
+    child.stdin.write(text);
+    child.stdin.end();
+  });
+}
 
 const KEVIN_AUTO_HIDE_MS = 15 * 60 * 1000;
 
@@ -246,9 +330,16 @@ export default function kevinExtension(pi: ExtensionAPI) {
     "analyze_trends",
   ]);
 
-  const setSelectedCve = async (ctx: ExtensionContext, cveId: string | null, persist = true) => {
+  const setSelectedCve = async (
+    ctx: ExtensionContext,
+    cveId: string | null,
+    options: {
+      persist?: boolean;
+      notify?: string | false;
+    } = {},
+  ) => {
     selectedCveId = cveId;
-    if (persist) persistSelectedCve(cveId);
+    if (options.persist ?? true) persistSelectedCve(cveId);
     await refreshSelectedDetails();
 
     if (cveId) {
@@ -259,7 +350,11 @@ export default function kevinExtension(pi: ExtensionAPI) {
       updateContextWidget(ctx);
     }
 
-    if (cveId && selectedCveDetails?.found) {
+    if (options.notify === false) return;
+
+    if (typeof options.notify === "string") {
+      ctx.ui.notify(options.notify, "info");
+    } else if (cveId && selectedCveDetails?.found) {
       ctx.ui.notify(`Pinned ${selectedCveDetails.cveId}`, "info");
     } else if (!cveId) {
       ctx.ui.notify("Cleared KEVin context", "info");
@@ -361,16 +456,50 @@ export default function kevinExtension(pi: ExtensionAPI) {
       );
 
       if (selected) {
-        await setSelectedCve(ctx, selected.cveId);
+        const workflowActions = new Set<BrowserWorkflowAction>(["patch", "exploit", "controls", "related"]);
+        const actionableActions = new Set<BrowserAction["action"]>(["open-nvd", "open-ref", "copy-link"]);
+        const notification = workflowActions.has(selected.action as BrowserWorkflowAction)
+          ? selected.action === "patch"
+            ? `Pinned ${selected.cveId} — checking remediation path`
+            : selected.action === "exploit"
+              ? `Pinned ${selected.cveId} — checking exploitability and urgency`
+              : selected.action === "controls"
+                ? `Pinned ${selected.cveId} — mapping controls`
+                : `Pinned ${selected.cveId} — finding related KEVs`
+          : selected.action === "open-nvd"
+            ? `Pinned ${selected.cveId} — opening NVD`
+            : selected.action === "open-ref"
+              ? `Pinned ${selected.cveId} — opening top reference`
+              : selected.action === "copy-link"
+                ? `Pinned ${selected.cveId} — copying best link`
+                : undefined;
 
-        if (selected.action === "patch") {
-          pi.sendUserMessage(`For ${selected.cveId}, run check_patch_status and summarize the remediation path.`);
-        } else if (selected.action === "exploit") {
-          pi.sendUserMessage(`For ${selected.cveId}, run check_exploit_availability and summarize exploitability and urgency.`);
-        } else if (selected.action === "controls") {
-          pi.sendUserMessage(`For ${selected.cveId}, run map_cve_to_controls and summarize the most relevant compliance mappings.`);
-        } else if (selected.action === "related") {
-          pi.sendUserMessage(`For ${selected.cveId}, run find_related_cves and summarize the most relevant related vulnerabilities.`);
+        await setSelectedCve(ctx, selected.cveId, { notify: notification });
+
+        if (workflowActions.has(selected.action as BrowserWorkflowAction)) {
+          const handoff = buildBrowserHandoff(selected.action as BrowserWorkflowAction, selected.cveId, selectedCveDetails);
+          pi.sendUserMessage(handoff.prompt);
+        } else if (actionableActions.has(selected.action)) {
+          try {
+            if (selected.action === "open-nvd") {
+              const url = selectedCveDetails?.nvdUrl;
+              if (!url) throw new Error("No NVD URL available for this CVE yet");
+              await openUrl(url);
+              ctx.ui.notify(`Opened NVD for ${selected.cveId}`, "info");
+            } else if (selected.action === "open-ref") {
+              const url = getBestReferenceUrl(selectedCveDetails);
+              if (!url) throw new Error("No advisory or reference link available for this CVE yet");
+              await openUrl(url);
+              ctx.ui.notify(`Opened top reference for ${selected.cveId}`, "info");
+            } else if (selected.action === "copy-link") {
+              const url = getBestReferenceUrl(selectedCveDetails) ?? selectedCveDetails?.nvdUrl;
+              if (!url) throw new Error("No link available for this CVE yet");
+              await copyToClipboard(url);
+              ctx.ui.notify(`Copied link for ${selected.cveId}`, "info");
+            }
+          } catch (error) {
+            ctx.ui.notify(error instanceof Error ? error.message : String(error), "error");
+          }
         }
       }
     },

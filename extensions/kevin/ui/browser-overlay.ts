@@ -1,9 +1,9 @@
 import type { Theme } from "@mariozechner/pi-coding-agent";
 import { Key, matchesKey, truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@mariozechner/pi-tui";
-import type { CveDetails, KevSearchResult, KevStats } from "../core/types.js";
+import type { CveDetails, KevSearchResult, KevStats, PatchReference } from "../core/types.js";
 
 export interface BrowserAction {
-  action: "pin" | "patch" | "exploit" | "controls" | "related";
+  action: "pin" | "patch" | "exploit" | "controls" | "related" | "open-nvd" | "open-ref" | "copy-link";
   cveId: string;
 }
 
@@ -69,6 +69,40 @@ function badges(theme: Theme, result: KevSearchResult | CveDetails): string[] {
 
 function selectedRow(theme: Theme, text: string, width: number): string {
   return theme.bg("selectedBg", padRightAnsi(truncateToWidth(text, width), width));
+}
+
+function summarizeUrl(url: string): string {
+  try {
+    const parsed = new URL(url);
+    return `${parsed.hostname}${parsed.pathname}`;
+  } catch {
+    return url.replace(/^https?:\/\//, "");
+  }
+}
+
+function isPatchReference(ref: PatchReference): boolean {
+  const tags = (ref.tags ?? []).join(" ").toLowerCase();
+  const url = ref.url.toLowerCase();
+  return tags.includes("patch") || tags.includes("vendor advisory") || url.includes("advisory") || url.includes("security") || url.includes("release-note") || url.includes("support") || url.includes("kb/");
+}
+
+function referenceLine(theme: Theme, ref: PatchReference): string {
+  const tags = (ref.tags ?? []).slice(0, 2).join(", ");
+  return `${theme.fg("muted", summarizeUrl(ref.url))}${tags ? ` ${theme.fg("dim", `[${tags}]`)}` : ""}`;
+}
+
+function fitPaneLines(lines: string[], width: number, height: number): string[] {
+  const fitted = lines.slice(0, height).map((line) => truncateToWidth(line, width));
+  while (fitted.length < height) fitted.push("");
+  return fitted;
+}
+
+function actionHintLine(theme: Theme): string {
+  return theme.fg("dim", "Enter pin • Ctrl+P patch • Ctrl+E urgency • Ctrl+G controls • Ctrl+L related");
+}
+
+function linkHintLine(theme: Theme): string {
+  return theme.fg("dim", "Ctrl+N NVD • Ctrl+V top patch/ref • Ctrl+Y copy best link • Esc close");
 }
 
 function sortLabel(mode: SortMode): string {
@@ -147,6 +181,24 @@ export class KevBrowserOverlay {
     if (matchesKey(data, Key.ctrl("l"))) {
       const selected = this.getSelected();
       if (selected) this.options.onSelect({ action: "related", cveId: selected.cveId });
+      return;
+    }
+
+    if (matchesKey(data, Key.ctrl("n"))) {
+      const selected = this.getSelected();
+      if (selected) this.options.onSelect({ action: "open-nvd", cveId: selected.cveId });
+      return;
+    }
+
+    if (matchesKey(data, Key.ctrl("v"))) {
+      const selected = this.getSelected();
+      if (selected) this.options.onSelect({ action: "open-ref", cveId: selected.cveId });
+      return;
+    }
+
+    if (matchesKey(data, Key.ctrl("y"))) {
+      const selected = this.getSelected();
+      if (selected) this.options.onSelect({ action: "copy-link", cveId: selected.cveId });
       return;
     }
 
@@ -264,23 +316,26 @@ export class KevBrowserOverlay {
     const selected = this.getSelected();
     const leftWidth = Math.max(42, Math.floor(width * 0.5));
     const rightWidth = Math.max(26, width - leftWidth - 1);
-    const visibleRows = 8;
+    const visibleRows = this.detailMode === "detail" ? 9 : 8;
+    const bodyHeight = visibleRows * 2;
     const start = Math.min(this.scrollOffsetFor(visibleRows), Math.max(0, this.filtered.length - visibleRows));
     const visible = this.filtered.slice(start, start + visibleRows);
+    const resultLines = this.renderResultLines(visible, start, leftWidth, visibleRows);
+    const detailLines = this.renderDetailLines(selected, rightWidth, bodyHeight);
 
-    lines.push(truncateToWidth(`${this.theme.fg("accent", this.theme.bold(` ${title} `))}${this.theme.fg("dim", "CISA Known Exploited Vulnerabilities")}`, width));
+    lines.push(truncateToWidth(`${this.theme.fg("accent", "◆")} ${this.theme.fg("accent", this.theme.bold(title))} ${this.theme.fg("dim", "• CISA Known Exploited Vulnerabilities")}`, width));
 
     if (this.options.stats) {
       lines.push(
         truncateToWidth(
-          `${this.theme.fg("text", `${this.options.stats.totalCves} KEVs`)} ${this.theme.fg("dim", "| ")}${this.theme.fg("warning", `${this.options.stats.ransomwareCount} ransomware`)} ${this.theme.fg("dim", "| ")}${this.theme.fg("error", `${this.options.stats.overdueCount} overdue`)}`,
+          `${this.theme.fg("accent", `[${this.options.stats.totalCves} KEVs]`)} ${this.theme.fg("warning", `[${this.options.stats.ransomwareCount} ransomware]`)} ${this.theme.fg("error", `[${this.options.stats.overdueCount} overdue]`)}`,
           width,
         ),
       );
     }
 
     const queryText = this.query ? this.theme.fg("text", this.query) : this.theme.fg("dim", "type to filter by CVE, vendor, product, CWE...");
-    lines.push(truncateToWidth(`${this.theme.fg("muted", "Search:")} ${queryText}`, width));
+    lines.push(truncateToWidth(`${this.theme.fg("muted", "⌕ Search:")} ${queryText}`, width));
     lines.push(
       truncateToWidth(
         `${this.theme.fg("dim", `Sort ${sortLabel(this.sortMode)}`)}${this.ransomwareOnly ? this.theme.fg("warning", " • ransomware") : ""}${this.overdueOnly ? this.theme.fg("error", " • overdue") : ""}${this.theme.fg("dim", ` • ${this.detailMode}`)}`,
@@ -288,23 +343,10 @@ export class KevBrowserOverlay {
       ),
     );
     lines.push(truncateToWidth(this.theme.fg("borderMuted", "─".repeat(Math.max(12, width))), width));
-    lines.push(joinColumns(this.theme.fg("accent", this.theme.bold(" Results")), this.theme.fg("accent", this.theme.bold(this.detailMode === "detail" ? " Detail" : " Preview")), leftWidth, rightWidth));
+    lines.push(joinColumns(this.theme.fg("accent", this.theme.bold(" ◆ Results")), this.theme.fg("accent", this.theme.bold(this.detailMode === "detail" ? " ◆ Detail" : " ◆ Preview")), leftWidth, rightWidth));
 
-    for (let row = 0; row < visibleRows; row++) {
-      const result = visible[row];
-      const detailPair = this.renderDetailPair(selected, row, rightWidth);
-
-      if (!result) {
-        const emptyLeft = row === 0 && this.filtered.length === 0 ? this.theme.fg("dim", " No matches for current filter") : "";
-        lines.push(joinColumns(emptyLeft, detailPair[0] ?? "", leftWidth, rightWidth));
-        lines.push(joinColumns("", detailPair[1] ?? "", leftWidth, rightWidth));
-        continue;
-      }
-
-      const absoluteIndex = start + row;
-      const pair = this.renderResultPair(result, absoluteIndex === this.selectedIndex, leftWidth);
-      lines.push(joinColumns(pair[0], detailPair[0] ?? "", leftWidth, rightWidth));
-      lines.push(joinColumns(pair[1], detailPair[1] ?? "", leftWidth, rightWidth));
+    for (let row = 0; row < bodyHeight; row++) {
+      lines.push(joinColumns(resultLines[row] ?? "", detailLines[row] ?? "", leftWidth, rightWidth));
     }
 
     lines.push(truncateToWidth(this.theme.fg("borderMuted", "─".repeat(Math.max(12, width))), width));
@@ -430,43 +472,129 @@ export class KevBrowserOverlay {
     return [truncateToWidth(line1Raw, width), truncateToWidth(line2Raw, width)];
   }
 
-  private renderDetailPair(selected: KevSearchResult | undefined, rowIndex: number, width: number): [string, string] {
+  private renderResultLines(visible: KevSearchResult[], start: number, width: number, visibleRows: number): string[] {
+    const lines: string[] = [];
+
+    for (let row = 0; row < visibleRows; row++) {
+      const result = visible[row];
+      if (!result) {
+        lines.push(row === 0 && this.filtered.length === 0 ? this.theme.fg("dim", " No matches for current filter") : "");
+        lines.push("");
+        continue;
+      }
+
+      const absoluteIndex = start + row;
+      const pair = this.renderResultPair(result, absoluteIndex === this.selectedIndex, width);
+      lines.push(pair[0], pair[1]);
+    }
+
+    return lines;
+  }
+
+  private renderDetailLines(selected: KevSearchResult | undefined, width: number, height: number): string[] {
     if (!selected) {
-      if (rowIndex === 0) return [this.theme.fg("dim", " Select a KEV to preview and pin context."), ""];
-      return ["", ""];
+      return fitPaneLines(
+        [
+          this.theme.fg("dim", " Select a KEV to preview, pin, or hand off."),
+          this.theme.fg("dim", " Use Enter to pin context or Ctrl+P / Ctrl+E / Ctrl+G / Ctrl+L for direct triage."),
+        ],
+        width,
+        height,
+      );
     }
 
-    const detailLines: string[] = [];
+    const loadedDetails = this.selectedDetails?.found && this.selectedDetails.cveId === selected.cveId ? this.selectedDetails : undefined;
+    return this.detailMode === "detail"
+      ? this.renderFullDetailLines(selected, loadedDetails, width, height)
+      : this.renderPreviewLines(selected, loadedDetails, width, height);
+  }
 
-    if (this.detailMode === "detail" && this.loadingDetails) {
-      detailLines.push(this.theme.fg("dim", " Loading full CVE details…"));
-    } else if (this.detailMode === "detail" && this.selectedDetails?.found) {
-      const details = this.selectedDetails;
-      detailLines.push(`${this.theme.fg("accent", details.cveId)}${badges(this.theme, details).length ? ` ${this.theme.fg("dim", "•")} ${badges(this.theme, details).join(` ${this.theme.fg("dim", "•")} `)}` : ""}`);
-      detailLines.push(`${this.theme.fg("text", details.vendor ?? "")} • ${this.theme.fg("muted", details.product ?? "")}`);
-      detailLines.push(`${this.theme.fg("dim", `Added ${details.dateAdded ?? "—"} • Due ${details.dueDate ?? "—"}`)}`);
-      detailLines.push(`${this.theme.fg("muted", "EPSS")}: ${riskColor(this.theme, details.epssScore ?? 0)} ${epssBar(this.theme, details.epssScore ?? 0, Math.max(10, Math.min(20, width - 12)))}`);
-      if (details.cvssPrimary) detailLines.push(`${this.theme.fg("muted", "CVSS")}: ${this.theme.fg("text", `${details.cvssPrimary.score.toFixed(1)} ${details.cvssPrimary.severity}`)}`);
-      if (details.requiredAction) {
-        detailLines.push("");
-        detailLines.push(this.theme.fg("accent", " Required action"));
-        detailLines.push(...wrapTextWithAnsi(this.theme.fg("muted", details.requiredAction), Math.max(14, width)).slice(0, 4));
-      }
-      if (details.description) {
-        detailLines.push("");
-        detailLines.push(this.theme.fg("accent", " Description"));
-        detailLines.push(...wrapTextWithAnsi(this.theme.fg("muted", details.description), Math.max(14, width)).slice(0, 4));
-      }
-    } else {
-      detailLines.push(`${this.theme.fg("accent", selected.cveId)}${badges(this.theme, selected).length ? ` ${this.theme.fg("dim", "•")} ${badges(this.theme, selected).join(` ${this.theme.fg("dim", "•")} `)}` : ""}`);
-      detailLines.push(`${this.theme.fg("text", selected.vendor)} • ${this.theme.fg("muted", selected.product)}`);
-      detailLines.push(`${this.theme.fg("dim", `Added ${selected.dateAdded ?? "—"} • Due ${selected.dueDate ?? "—"}`)}`);
-      detailLines.push(`${this.theme.fg("muted", "EPSS")}: ${riskColor(this.theme, selected.epssScore)} ${epssBar(this.theme, selected.epssScore, Math.max(10, Math.min(20, width - 12)))}`);
-      detailLines.push("");
-      detailLines.push(...wrapTextWithAnsi(this.theme.fg("muted", selected.shortDescription), Math.max(14, width)).slice(0, 9));
+  private renderPreviewLines(selected: KevSearchResult, loadedDetails: CveDetails | undefined, width: number, height: number): string[] {
+    const lines: string[] = [];
+    const headerBadges = badges(this.theme, loadedDetails ?? selected);
+
+    lines.push(`${this.theme.fg("accent", selected.cveId)}${headerBadges.length ? ` ${this.theme.fg("dim", "•")} ${headerBadges.join(` ${this.theme.fg("dim", "•")} `)}` : ""}`);
+    lines.push(`${this.theme.fg("text", selected.vendor)} • ${this.theme.fg("muted", selected.product)}`);
+    lines.push(this.theme.fg("text", selected.name));
+    lines.push(`${this.theme.fg("dim", `Added ${selected.dateAdded ?? "—"} • Due ${selected.dueDate ?? "—"}`)}`);
+    lines.push(`${this.theme.fg("muted", "EPSS")}: ${riskColor(this.theme, selected.epssScore)} ${epssBar(this.theme, selected.epssScore, Math.max(10, Math.min(20, width - 12)))}`);
+
+    if (loadedDetails?.cvssPrimary) {
+      lines.push(`${this.theme.fg("muted", "CVSS")}: ${this.theme.fg("text", `${loadedDetails.cvssPrimary.score.toFixed(1)} ${loadedDetails.cvssPrimary.severity}`)}`);
+    }
+    if (loadedDetails?.cwes?.length) {
+      lines.push(`${this.theme.fg("muted", "CWEs")}: ${this.theme.fg("dim", loadedDetails.cwes.slice(0, 3).join(", "))}`);
     }
 
-    const start = rowIndex * 2;
-    return [truncateToWidth(detailLines[start] ?? "", width), truncateToWidth(detailLines[start + 1] ?? "", width)];
+    lines.push(this.theme.fg("accent", " Summary"));
+    lines.push(...wrapTextWithAnsi(this.theme.fg("muted", loadedDetails?.description ?? selected.shortDescription), Math.max(14, width)).slice(0, 4));
+
+    if (loadedDetails?.requiredAction) {
+      lines.push(this.theme.fg("accent", " Required action"));
+      lines.push(...wrapTextWithAnsi(this.theme.fg("muted", loadedDetails.requiredAction), Math.max(14, width)).slice(0, 2));
+    }
+
+    lines.push(this.theme.fg("dim", " Tab for richer detail including notes, refs, and patch links."));
+    lines.push(actionHintLine(this.theme));
+    lines.push(linkHintLine(this.theme));
+    return fitPaneLines(lines, width, height);
+  }
+
+  private renderFullDetailLines(selected: KevSearchResult, loadedDetails: CveDetails | undefined, width: number, height: number): string[] {
+    const lines: string[] = [];
+    const headerBadges = badges(this.theme, loadedDetails ?? selected);
+
+    lines.push(`${this.theme.fg("accent", selected.cveId)}${headerBadges.length ? ` ${this.theme.fg("dim", "•")} ${headerBadges.join(` ${this.theme.fg("dim", "•")} `)}` : ""}`);
+    lines.push(`${this.theme.fg("text", selected.vendor)} • ${this.theme.fg("muted", selected.product)}`);
+    lines.push(this.theme.fg("text", selected.name));
+    lines.push(`${this.theme.fg("dim", `Added ${selected.dateAdded ?? "—"} • Due ${selected.dueDate ?? "—"}`)}`);
+    lines.push(`${this.theme.fg("muted", "EPSS")}: ${riskColor(this.theme, selected.epssScore)} ${epssBar(this.theme, selected.epssScore, Math.max(10, Math.min(20, width - 12)))}`);
+
+    if (!loadedDetails) {
+      lines.push(this.theme.fg("dim", this.loadingDetails ? " Loading full CVE details…" : " Full CVE details not available yet."));
+      lines.push(this.theme.fg("accent", " Summary"));
+      lines.push(...wrapTextWithAnsi(this.theme.fg("muted", selected.shortDescription), Math.max(14, width)).slice(0, 6));
+      lines.push(actionHintLine(this.theme));
+      lines.push(linkHintLine(this.theme));
+      return fitPaneLines(lines, width, height);
+    }
+
+    const references = loadedDetails.references ?? [];
+    const patchReferences = references.filter((ref) => isPatchReference(ref));
+    const displayedRefs = (patchReferences.length > 0 ? patchReferences : references).slice(0, 2);
+
+    lines.push(
+      loadedDetails.cvssPrimary
+        ? `${this.theme.fg("muted", "CVSS")}: ${this.theme.fg("text", `${loadedDetails.cvssPrimary.score.toFixed(1)} ${loadedDetails.cvssPrimary.severity}`)}${loadedDetails.cvssPrimary.source ? ` ${this.theme.fg("dim", ` • ${loadedDetails.cvssPrimary.source}`)}` : ""}`
+        : this.theme.fg("dim", "CVSS: not available"),
+    );
+    if (loadedDetails.nvdUrl) {
+      lines.push(`${this.theme.fg("muted", "NVD")}: ${this.theme.fg("dim", summarizeUrl(loadedDetails.nvdUrl))}`);
+    }
+    const metaSummary: string[] = [];
+    if (loadedDetails.cwes?.length) metaSummary.push(`CWEs ${loadedDetails.cwes.slice(0, 3).join(", ")}`);
+    if (references.length > 0) metaSummary.push(`${references.length} refs${patchReferences.length ? ` • ${patchReferences.length} patch/advisory` : ""}`);
+    if (metaSummary.length > 0) lines.push(this.theme.fg("dim", metaSummary.join(" • ")));
+
+    const appendSection = (title: string, content: string | undefined, maxLines: number) => {
+      if (!content) return;
+      lines.push(this.theme.fg("accent", ` ${title}`));
+      lines.push(...wrapTextWithAnsi(this.theme.fg("muted", content), Math.max(14, width)).slice(0, maxLines));
+    };
+
+    appendSection("Required action", loadedDetails.requiredAction, 2);
+    appendSection("Notes", loadedDetails.notes, 1);
+    appendSection("Description", loadedDetails.description ?? selected.shortDescription, 1);
+
+    if (displayedRefs.length > 0) {
+      lines.push(this.theme.fg("accent", patchReferences.length > 0 ? " Patch refs" : " Top refs"));
+      for (const ref of displayedRefs) {
+        lines.push(referenceLine(this.theme, ref));
+      }
+    }
+
+    lines.push(actionHintLine(this.theme));
+    lines.push(linkHintLine(this.theme));
+    return fitPaneLines(lines, width, height);
   }
 }
