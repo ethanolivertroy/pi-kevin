@@ -1,5 +1,4 @@
 import { spawn } from "node:child_process";
-import { StringEnum } from "@mariozechner/pi-ai";
 import type { ExtensionAPI, ExtensionContext, Theme } from "@mariozechner/pi-coding-agent";
 import { Text, truncateToWidth } from "@mariozechner/pi-tui";
 import { Type } from "@sinclair/typebox";
@@ -27,7 +26,7 @@ import { type BrowserAction, KevBrowserOverlay } from "./ui/browser-overlay.js";
 const store = new KevStore();
 const analytics = new KevAnalytics(store);
 
-const FrameworkSchema = StringEnum(["nist", "fedramp", "cis"] as const);
+const FrameworkSchema = Type.Union([Type.Literal("nist"), Type.Literal("fedramp"), Type.Literal("cis")]);
 
 const SearchParams = Type.Object({
   query: Type.Optional(Type.String({ description: "Search term matching CVE ID, vendor, product, name, or description" })),
