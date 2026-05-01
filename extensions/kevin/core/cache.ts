@@ -2,7 +2,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { homedir } from "node:os";
 
-const CACHE_DIR = join(homedir(), ".cache", "kevin-pi");
+const CACHE_DIR = join(homedir(), ".cache", "pi-kevin");
 
 export async function ensureCacheDir(): Promise<string> {
   await mkdir(CACHE_DIR, { recursive: true });

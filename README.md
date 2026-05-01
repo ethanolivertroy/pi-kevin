@@ -1,6 +1,6 @@
-# KEVin Pi
+# pi-kevin
 
-KEVin Pi is a Pi-native package for browsing and analyzing the CISA Known Exploited Vulnerabilities (KEV) catalog.
+`pi-kevin` is a Pi-native extension for browsing and analyzing the CISA Known Exploited Vulnerabilities (KEV) catalog.
 
 It replaces the old `kevs-tui` Go/Bubble Tea app with a native **Pi extension + skill** package, so KEV search, triage, remediation guidance, compliance mapping, and analytics all live directly inside Pi.
 
@@ -19,14 +19,14 @@ KEVin Pi keeps that workflow, but makes it native to Pi instead of maintaining a
 ### Global install
 
 ```bash
-pi install https://github.com/ethanolivertroy/kevin-pi
+pi install https://github.com/ethanolivertroy/pi-kevin
 ```
 
 ### Project-local install
 
 ```bash
 cd /path/to/project
-pi install -l https://github.com/ethanolivertroy/kevin-pi
+pi install -l https://github.com/ethanolivertroy/pi-kevin
 ```
 
 ## Quick start
@@ -175,7 +175,7 @@ The older `kevs-tui` repository is now archived.
 
 KEVin Pi is the actively maintained successor:
 - old repo: `ethanolivertroy/kevs-tui`
-- current repo: `ethanolivertroy/kevin-pi`
+- current repo: `ethanolivertroy/pi-kevin`
 
 ## Development
 

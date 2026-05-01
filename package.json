@@ -1,14 +1,34 @@
 {
-  "name": "@ethanolivertroy/kevin-pi",
+  "name": "pi-kevin",
   "version": "0.1.0",
-  "private": true,
+  "description": "Pi extension for browsing and analyzing CISA Known Exploited Vulnerabilities with KEVin.",
   "license": "MIT",
-  "description": "Pi package for browsing and analyzing CISA Known Exploited Vulnerabilities with KEVin.",
-  "keywords": ["pi-package", "security", "cve", "kev", "cisa", "vulnerability"],
   "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ethanolivertroy/pi-kevin.git"
+  },
+  "homepage": "https://github.com/ethanolivertroy/pi-kevin#readme",
+  "bugs": {
+    "url": "https://github.com/ethanolivertroy/pi-kevin/issues"
+  },
+  "keywords": [
+    "pi-package",
+    "pi",
+    "pi-coding-agent",
+    "security",
+    "cve",
+    "kev",
+    "cisa",
+    "vulnerability"
+  ],
   "pi": {
-    "extensions": ["./extensions"],
-    "skills": ["./skills"]
+    "extensions": [
+      "./extensions"
+    ],
+    "skills": [
+      "./skills"
+    ]
   },
   "peerDependencies": {
     "@mariozechner/pi-ai": "*",
