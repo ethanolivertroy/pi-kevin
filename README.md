@@ -1,3 +1,5 @@
+> **Archived.** This project is no longer maintained. No successor is designated.
+
 # pi-kevin
 
 `pi-kevin` is a Pi-native extension for browsing and analyzing the CISA Known Exploited Vulnerabilities (KEV) catalog.
@@ -53,7 +55,7 @@ Representative `/kev` layout:
 │◆ KEVin Browser • CISA Known Exploited Vulnerabilities                       │
 │[1461 KEVs] [201 ransomware] [73 overdue]                                    │
 │⌕ Search: palo alto                                                          │
-│Sort best • preview • ransomware                                             │
+│Sort BEST • Ransomware on • Overdue off • View preview                       │
 │──────────────────────────────────────────────────────────────────────────────│
 │◆ Results                                    ◆ Preview                       │
 │▌ CVE-2024-3400 PAN-OS command injection      CVE-2024-3400 • RANSOMWARE     │
@@ -169,13 +171,11 @@ If you want different behavior:
 /kev-ui auto
 ```
 
-## Successor to `kevs-tui`
+## Archived
 
-The older `kevs-tui` repository is now archived.
+This repository is archived and is no longer maintained. It will not take further fixes, features, or dependency updates.
 
-KEVin Pi is the actively maintained successor:
-- old repo: `ethanolivertroy/kevs-tui`
-- current repo: `ethanolivertroy/pi-kevin`
+`pi-kevin` was the Pi-native replacement for the older [`ethanolivertroy/kevs-tui`](https://github.com/ethanolivertroy/kevs-tui) app, which is also archived. This repository does not name a successor.
 
 ## Development
 
@@ -184,12 +184,14 @@ npm install
 npm run typecheck
 ```
 
-## Status
+## License
 
-KEVin Pi is already useful and actively evolving.
+Released under the [MIT License](LICENSE).
 
-Recent polish includes:
-- richer detail mode with required action, notes, description, CVSS, CWEs, and top references
-- safer quick-action handoffs for remediation, exploitability, controls, and related KEVs
-- actionable browser links for NVD and top patch/advisory references
-- a more KEVin-style browser layout inside Pi
+## Last browser behavior
+
+The `/kev` browser in this archive includes:
+
+- a state bar for the active sort, ransomware filter, overdue filter, and preview/detail view
+- a detail page with a separate risk block, required action, description, notes, and references
+- quick actions on Ctrl chords that pin the selected CVE, confirm the action in a notification, and hand the follow-up to the assistant
