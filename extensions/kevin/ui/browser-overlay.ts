@@ -52,18 +52,20 @@ function riskColor(theme: Theme, score: number): string {
   return theme.fg("success", formatPercent(score));
 }
 
-function epssBadge(theme: Theme, score: number): string {
-  if (score >= 0.7) return theme.fg("error", "HIGH");
-  if (score >= 0.3) return theme.fg("warning", "MED");
-  return theme.fg("success", "LOW");
+function urgencyChip(theme: Theme, color: "error" | "warning" | "success", label: string): string {
+  return theme.fg(color, `[${label}]`);
 }
 
 function badges(theme: Theme, result: KevSearchResult | CveDetails): string[] {
   const output: string[] = [];
-  if (result.ransomwareUse) output.push(theme.fg("warning", "RANSOMWARE"));
-  if (result.isOverdue) output.push(theme.fg("error", "OVERDUE"));
+  if (result.ransomwareUse) output.push(urgencyChip(theme, "warning", "RANSOMWARE"));
+  if (result.isOverdue) output.push(urgencyChip(theme, "error", "OVERDUE"));
   const score = "epssScore" in result ? (result.epssScore ?? 0) : 0;
-  if (score > 0) output.push(theme.fg(score >= 0.7 ? "error" : score >= 0.3 ? "warning" : "success", `EPSS ${epssBadge(theme, score)}`));
+  if (score > 0) {
+    const level = score >= 0.7 ? "HIGH" : score >= 0.3 ? "MED" : "LOW";
+    const color = score >= 0.7 ? "error" : score >= 0.3 ? "warning" : "success";
+    output.push(urgencyChip(theme, color, `EPSS ${level}`));
+  }
   return output;
 }
 
@@ -101,21 +103,30 @@ function actionHintLine(theme: Theme): string {
   return theme.fg("muted", "Enter pin • Ctrl+P patch • Ctrl+E urgency • Ctrl+G controls • Ctrl+L related");
 }
 
-function linkHintLine(theme: Theme): string {
-  return theme.fg("muted", "Ctrl+N NVD • Ctrl+V top patch/ref • Ctrl+Y copy best link • Esc close");
-}
-
 function sortLabel(mode: SortMode): string {
   switch (mode) {
     case "best":
-      return "best";
+      return "BEST";
     case "recent":
-      return "recent";
+      return "RECENT";
     case "epss":
-      return "epss";
+      return "EPSS";
     case "vendor":
-      return "vendor";
+      return "VENDOR";
+    default: {
+      const exhaustive: never = mode;
+      return exhaustive;
+    }
   }
+}
+
+function renderStateBar(theme: Theme, sortMode: SortMode, ransomwareOnly: boolean, overdueOnly: boolean, detailMode: DetailMode): string {
+  const dot = theme.fg("dim", "•");
+  const sort = `${theme.fg("muted", "Sort")} ${theme.fg("accent", theme.bold(sortLabel(sortMode)))}`;
+  const ransomware = `${theme.fg("muted", "Ransomware")} ${ransomwareOnly ? theme.fg("warning", theme.bold("ON")) : theme.fg("muted", "off")}`;
+  const overdue = `${theme.fg("muted", "Overdue")} ${overdueOnly ? theme.fg("error", theme.bold("ON")) : theme.fg("muted", "off")}`;
+  const view = `${theme.fg("muted", "View")} ${theme.fg("text", detailMode)}`;
+  return `${sort} ${dot} ${ransomware} ${dot} ${overdue} ${dot} ${view}`;
 }
 
 export class KevBrowserOverlay {
@@ -334,12 +345,7 @@ export class KevBrowserOverlay {
 
     const queryText = this.query ? this.theme.fg("text", this.query) : this.theme.fg("muted", "type to filter by CVE, vendor, product, CWE...");
     lines.push(truncateToWidth(`${this.theme.fg("muted", "⌕ Search:")} ${queryText}`, width));
-    lines.push(
-      truncateToWidth(
-        `${this.theme.fg("muted", "Sort")} ${this.theme.fg("text", sortLabel(this.sortMode))}${this.ransomwareOnly ? this.theme.fg("warning", " • ransomware") : ""}${this.overdueOnly ? this.theme.fg("error", " • overdue") : ""}${this.theme.fg("muted", ` • ${this.detailMode}`)}`,
-        width,
-      ),
-    );
+    lines.push(truncateToWidth(renderStateBar(this.theme, this.sortMode, this.ransomwareOnly, this.overdueOnly, this.detailMode), width));
     lines.push(truncateToWidth(this.theme.fg("borderMuted", "─".repeat(Math.max(12, width))), width));
 
     if (this.detailMode === "detail") {
@@ -415,8 +421,11 @@ export class KevBrowserOverlay {
       case "recent":
         return (b.dateAdded ?? "").localeCompare(a.dateAdded ?? "");
       case "best":
-      default:
         return bScore - aScore || b.epssScore - a.epssScore || (b.dateAdded ?? "").localeCompare(a.dateAdded ?? "");
+      default: {
+        const exhaustive: never = this.sortMode;
+        return exhaustive;
+      }
     }
   }
 
@@ -545,8 +554,8 @@ export class KevBrowserOverlay {
     lines.push(...wrapTextWithAnsi(this.theme.fg("text", summary), Math.max(14, width)).slice(0, 3));
 
     if (action) {
-      lines.push(this.theme.fg("accent", " Next step"));
-      lines.push(...wrapTextWithAnsi(this.theme.fg("text", action), Math.max(14, width)).slice(0, 2));
+      lines.push(this.theme.fg("warning", this.theme.bold(" Next step")));
+      lines.push(...wrapTextWithAnsi(this.theme.fg("warning", action), Math.max(14, width)).slice(0, 2));
     }
 
     lines.push(this.theme.fg("muted", " Enter pins this CVE. Tab opens the full detail page."));
@@ -556,59 +565,53 @@ export class KevBrowserOverlay {
 
   private renderFullDetailLines(selected: KevSearchResult, loadedDetails: CveDetails | undefined, width: number, height: number): string[] {
     const lines: string[] = [];
-    const headerBadges = badges(this.theme, loadedDetails ?? selected);
+    const theme = this.theme;
+    const textWidth = Math.max(14, width);
+    const headerBadges = badges(theme, loadedDetails ?? selected);
+    const badgeText = headerBadges.length ? ` ${theme.fg("dim", "•")} ${headerBadges.join(` ${theme.fg("dim", "•")} `)}` : "";
 
-    lines.push(`${this.theme.fg("accent", selected.cveId)}${headerBadges.length ? ` ${this.theme.fg("dim", "•")} ${headerBadges.join(` ${this.theme.fg("dim", "•")} `)}` : ""}`);
-    lines.push(`${this.theme.fg("text", selected.vendor)} • ${this.theme.fg("muted", selected.product)}`);
-    lines.push(this.theme.fg("text", selected.name));
-    lines.push(this.theme.fg("muted", `Added ${selected.dateAdded ?? "—"} • Due ${selected.dueDate ?? "—"}`));
-    lines.push(`${this.theme.fg("text", "EPSS")}: ${riskColor(this.theme, selected.epssScore)} ${epssBar(this.theme, selected.epssScore, Math.max(10, Math.min(20, width - 12)))}`);
+    lines.push(`${theme.fg("accent", theme.bold(selected.cveId))}${badgeText}`);
+    lines.push(theme.fg("text", theme.bold(selected.name)));
+    lines.push(theme.fg("muted", `${selected.vendor} • ${selected.product} • Added ${selected.dateAdded ?? "—"} • Due ${selected.dueDate ?? "—"}`));
 
-    if (!loadedDetails) {
-      lines.push(this.theme.fg("muted", this.loadingDetails ? " Loading full CVE details…" : " Full CVE details not available yet."));
-      lines.push(this.theme.fg("accent", " Summary"));
-      lines.push(...wrapTextWithAnsi(this.theme.fg("text", selected.shortDescription), Math.max(14, width)).slice(0, 6));
-      lines.push(actionHintLine(this.theme));
-      lines.push(linkHintLine(this.theme));
-      return fitPaneLines(lines, width, height);
-    }
-
-    const references = loadedDetails.references ?? [];
-    const patchReferences = references.filter((ref) => isPatchReference(ref));
-    const displayedRefs = (patchReferences.length > 0 ? patchReferences : references).slice(0, 2);
-
+    const cvss = loadedDetails?.cvssPrimary;
+    const cvssText = cvss
+      ? `${theme.fg("text", "CVSS")} ${theme.fg("text", theme.bold(`${cvss.score.toFixed(1)} ${cvss.severity}`))}`
+      : theme.fg("muted", loadedDetails ? "CVSS n/a" : this.loadingDetails ? "CVSS loading" : "CVSS unavailable");
     lines.push(
-      loadedDetails.cvssPrimary
-        ? `${this.theme.fg("text", "CVSS")}: ${this.theme.fg("text", `${loadedDetails.cvssPrimary.score.toFixed(1)} ${loadedDetails.cvssPrimary.severity}`)}${loadedDetails.cvssPrimary.source ? ` ${this.theme.fg("muted", ` • ${loadedDetails.cvssPrimary.source}`)}` : ""}`
-        : this.theme.fg("muted", "CVSS: not available"),
+      `${theme.fg("text", "EPSS")} ${riskColor(theme, selected.epssScore)} ${epssBar(theme, selected.epssScore, 12)} ${theme.fg("dim", "•")} ${cvssText}`,
     );
-    if (loadedDetails.nvdUrl) {
-      lines.push(`${this.theme.fg("text", "NVD")}: ${this.theme.fg("text", summarizeUrl(loadedDetails.nvdUrl))}`);
+
+    lines.push(theme.fg("warning", theme.bold(" Required action")));
+    if (loadedDetails?.requiredAction) {
+      lines.push(...wrapTextWithAnsi(theme.fg("warning", loadedDetails.requiredAction), textWidth).slice(0, 2));
+    } else {
+      lines.push(theme.fg("muted", loadedDetails ? "None recorded." : "Shown when details finish loading."));
     }
-    const metaSummary: string[] = [];
-    if (loadedDetails.cwes?.length) metaSummary.push(`CWEs ${loadedDetails.cwes.slice(0, 3).join(", ")}`);
-    if (references.length > 0) metaSummary.push(`${references.length} refs${patchReferences.length ? ` • ${patchReferences.length} patch/advisory` : ""}`);
-    if (metaSummary.length > 0) lines.push(this.theme.fg("muted", metaSummary.join(" • ")));
 
-    const appendSection = (title: string, content: string | undefined, maxLines: number) => {
-      if (!content) return;
-      lines.push(this.theme.fg("accent", ` ${title}`));
-      lines.push(...wrapTextWithAnsi(this.theme.fg("text", content), Math.max(14, width)).slice(0, maxLines));
-    };
+    lines.push(theme.fg("accent", " Description"));
+    lines.push(...wrapTextWithAnsi(theme.fg("text", loadedDetails?.description ?? selected.shortDescription), textWidth).slice(0, 2));
 
-    appendSection("Required action", loadedDetails.requiredAction, 2);
-    appendSection("Notes", loadedDetails.notes, 1);
-    appendSection("Description", loadedDetails.description ?? selected.shortDescription, 1);
+    if (loadedDetails?.notes) {
+      lines.push(...wrapTextWithAnsi(`${theme.fg("accent", "Notes")} ${theme.fg("text", loadedDetails.notes)}`, textWidth).slice(0, 1));
+    }
 
-    if (displayedRefs.length > 0) {
-      lines.push(this.theme.fg("accent", patchReferences.length > 0 ? " Patch refs" : " Top refs"));
-      for (const ref of displayedRefs) {
-        lines.push(referenceLine(this.theme, ref));
+    if (loadedDetails) {
+      const references = loadedDetails.references ?? [];
+      const patchReferences = references.filter((ref) => isPatchReference(ref));
+      const displayedRefs = (patchReferences.length > 0 ? patchReferences : references).slice(0, 2);
+      const meta: string[] = [];
+      if (loadedDetails.cwes?.length) meta.push(`CWEs ${loadedDetails.cwes.slice(0, 3).join(", ")}`);
+      if (references.length > 0) meta.push(`${references.length} refs${patchReferences.length ? ` • ${patchReferences.length} patch/advisory` : ""}`);
+      if (meta.length > 0) lines.push(theme.fg("muted", meta.join(" • ")));
+      if (displayedRefs.length > 0) {
+        lines.push(theme.fg("accent", patchReferences.length > 0 ? " Patch references" : " References"));
+        for (const ref of displayedRefs) lines.push(referenceLine(theme, ref));
+      } else if (loadedDetails.nvdUrl) {
+        lines.push(`${theme.fg("accent", " References")} ${theme.fg("text", summarizeUrl(loadedDetails.nvdUrl))}`);
       }
     }
 
-    lines.push(actionHintLine(this.theme));
-    lines.push(linkHintLine(this.theme));
     return fitPaneLines(lines, width, height);
   }
 }
